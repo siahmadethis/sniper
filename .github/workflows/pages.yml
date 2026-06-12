@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Refresh the baked-in FRED data snapshot each morning (12:00 UTC,
+    # Tue-Sat) so it includes the previous trading day's close.
+    - cron: "0 12 * * 2-6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch FRED data snapshot
+        run: |
+          mkdir -p data
+          START=$(date -d "1 year ago" +%Y-%m-%d)
+          for ID in VIXCLS T10Y2Y; do
+            LOWER=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
+            curl -fsSL --retry 3 \
+              "https://fred.stlouisfed.org/graph/fredgraph.csv?id=${ID}&cosd=${START}" \
+              -o "data/${LOWER}.csv"
+            # sanity check: header plus at least 100 observations
+            test "$(wc -l < data/${LOWER}.csv)" -gt 100
+          done
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

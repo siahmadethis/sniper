@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>VIX / (10Y2Y Spread + 2.5)</title>
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VIX Ratio">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 <style>
   :root {
     --bg: #0d1117;
@@ -26,7 +34,9 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 32px 16px;
+    padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+             calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+    -webkit-text-size-adjust: 100%;
   }
   h1 { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
   .container { width: 100%; max-width: 860px; display: flex; flex-direction: column; gap: 20px; }
@@ -35,7 +45,7 @@
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 24px;
+    padding: clamp(14px, 3vw, 24px);
   }
 
   /* Formula rendering */
@@ -43,9 +53,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 20px;
+    gap: clamp(8px, 2.5vw, 20px);
     font-family: "Cambria Math", Georgia, serif;
-    font-size: 28px;
+    font-size: clamp(17px, 3.4vw, 28px);
     flex-wrap: wrap;
   }
   .fraction { display: inline-flex; flex-direction: column; align-items: center; text-align: center; }
@@ -58,7 +68,7 @@
   /* Big readout */
   .readout { text-align: center; }
   .readout .value {
-    font-size: 72px;
+    font-size: clamp(52px, 14vw, 72px);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     line-height: 1.1;
@@ -75,18 +85,18 @@
   .readout .asof { margin-top: 10px; color: var(--muted); font-size: 13px; }
 
   /* Components row */
-  .components { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .components { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 12px; }
   .component {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 14px 16px;
+    padding: 14px 8px;
     text-align: center;
   }
-  .component .name { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-  .component .val { font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .component .name { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .component .val { font-size: clamp(19px, 5vw, 26px); font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
 
-  canvas { width: 100%; height: 240px; display: block; }
+  canvas { width: 100%; height: 240px; display: block; touch-action: pan-y; }
   .chart-title { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 
   .status { text-align: center; font-size: 13px; color: var(--muted); }
@@ -96,11 +106,14 @@
     background: var(--accent);
     color: #0d1117;
     border: none;
-    border-radius: 6px;
-    padding: 8px 18px;
-    font-size: 14px;
+    border-radius: 8px;
+    padding: 12px 20px;
+    min-height: 44px; /* Apple HIG minimum touch target */
+    font-size: 15px;
     font-weight: 600;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
   button:hover { filter: brightness(1.1); }
   button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
@@ -112,10 +125,10 @@
   .manual input {
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 8px;
     color: var(--text);
-    padding: 8px 10px;
-    font-size: 15px;
+    padding: 11px 10px;
+    font-size: 16px; /* ≥16px stops iOS Safari zooming on focus */
     width: 130px;
   }
   .toolbar { display: flex; justify-content: center; gap: 10px; }
@@ -270,7 +283,13 @@
 
   async function fetchSeries(id, startDate) {
     const qs = "id=" + id + "&cosd=" + startDate;
-    const urls = [FRED + "?" + qs, "/api/fred?" + qs]; // direct, then local proxy
+    // Direct FRED fetch, then local proxy (server.py), then the static
+    // snapshot baked into the site by the GitHub Pages workflow.
+    const urls = [
+      FRED + "?" + qs,
+      "api/fred?" + qs,
+      "data/" + id.toLowerCase() + ".csv?v=" + new Date().toISOString().slice(0, 10),
+    ];
     let lastErr;
     for (const url of urls) {
       try {
@@ -387,11 +406,11 @@
     ctx.fill();
   }
 
-  // hover tooltip via chart title swap
-  $("chart").addEventListener("mousemove", (ev) => {
+  // hover / touch inspection via chart title swap
+  function inspect(clientX) {
     if (!chartData) return;
-    const rect = ev.currentTarget.getBoundingClientRect();
-    const frac = (ev.clientX - rect.left - 44) / (rect.width - 44 - 12);
+    const rect = $("chart").getBoundingClientRect();
+    const frac = (clientX - rect.left - 44) / (rect.width - 44 - 12);
     const i = Math.round(frac * (chartData.length - 1));
     if (i >= 0 && i < chartData.length) {
       const p = chartData[i];
@@ -399,9 +418,19 @@
         p.date + " · ratio " + fmt(p.ratio) + " (VIX " + fmt(p.vix) +
         ", spread " + fmt(p.spread) + "%)";
     }
-  });
+  }
+  $("chart").addEventListener("mousemove", (ev) => inspect(ev.clientX));
+  $("chart").addEventListener("touchstart", (ev) => inspect(ev.touches[0].clientX), { passive: true });
+  $("chart").addEventListener("touchmove", (ev) => inspect(ev.touches[0].clientX), { passive: true });
   $("chart").addEventListener("mouseleave", () => {
     $("chart-title").textContent = "Ratio — trailing 1 year";
+  });
+
+  // redraw on rotation / resize (canvas backing store is sized in drawChart)
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (chartData) drawChart(chartData); }, 150);
   });
 
   // --- wiring -----------------------------------------------------------------
@@ -419,6 +448,11 @@
   });
 
   load();
+
+  // offline app shell for home-screen installs
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 })();
 </script>
 </body>
