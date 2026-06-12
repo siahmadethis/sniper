@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VIX / (10Y2Y Spread + 2.5)</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --orange: #f0883e;
+    --red: #f85149;
+    --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+  }
+  h1 { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .container { width: 100%; max-width: 860px; display: flex; flex-direction: column; gap: 20px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  /* Formula rendering */
+  .formula {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    font-family: "Cambria Math", Georgia, serif;
+    font-size: 28px;
+    flex-wrap: wrap;
+  }
+  .fraction { display: inline-flex; flex-direction: column; align-items: center; text-align: center; }
+  .fraction .num { padding: 4px 16px; }
+  .fraction .den { padding: 4px 16px; border-top: 2px solid var(--text); }
+  .formula .equals { font-size: 32px; color: var(--muted); }
+  .formula .sub { font-size: 16px; color: var(--muted); display: block; font-family: inherit; }
+  .live-num { color: var(--accent); }
+
+  /* Big readout */
+  .readout { text-align: center; }
+  .readout .value {
+    font-size: 72px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .readout .label {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 4px 14px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid currentColor;
+  }
+  .readout .asof { margin-top: 10px; color: var(--muted); font-size: 13px; }
+
+  /* Components row */
+  .components { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .component {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .component .name { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .component .val { font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  canvas { width: 100%; height: 240px; display: block; }
+  .chart-title { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+
+  .status { text-align: center; font-size: 13px; color: var(--muted); }
+  .status.error { color: var(--orange); }
+
+  button {
+    background: var(--accent);
+    color: #0d1117;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+
+  .manual { display: none; }
+  .manual.visible { display: block; }
+  .manual-row { display: flex; gap: 12px; justify-content: center; align-items: end; flex-wrap: wrap; margin-top: 12px; }
+  .manual label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .manual input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 15px;
+    width: 130px;
+  }
+  .toolbar { display: flex; justify-content: center; gap: 10px; }
+  .footnote { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1 style="text-align:center">Volatility / Curve Stress Indicator</h1>
+
+  <!-- Formula with live values -->
+  <div class="panel">
+    <div class="formula">
+      <span class="fraction">
+        <span class="num">VIX</span>
+        <span class="den">10Y2Y&thinsp;Spread + 2.5</span>
+      </span>
+      <span class="equals">=</span>
+      <span class="fraction">
+        <span class="num live-num" id="f-vix">&mdash;</span>
+        <span class="den"><span class="live-num" id="f-spread">&mdash;</span> + 2.5</span>
+      </span>
+      <span class="equals">=</span>
+      <span class="live-num" id="f-result" style="font-size:36px; font-weight:700">&mdash;</span>
+    </div>
+  </div>
+
+  <!-- Big readout -->
+  <div class="panel readout">
+    <div class="value" id="ratio-value">&mdash;</div>
+    <div class="label" id="ratio-label" style="display:none"></div>
+    <div class="asof" id="asof"></div>
+  </div>
+
+  <!-- Component values -->
+  <div class="components">
+    <div class="component">
+      <div class="name">VIX (close)</div>
+      <div class="val" id="c-vix">&mdash;</div>
+    </div>
+    <div class="component">
+      <div class="name">10Y&minus;2Y Spread</div>
+      <div class="val" id="c-spread">&mdash;</div>
+    </div>
+    <div class="component">
+      <div class="name">Denominator</div>
+      <div class="val" id="c-denom">&mdash;</div>
+    </div>
+  </div>
+
+  <!-- History chart -->
+  <div class="panel">
+    <div class="chart-title" id="chart-title">Ratio &mdash; trailing 1 year</div>
+    <canvas id="chart" width="800" height="240"></canvas>
+  </div>
+
+  <div class="toolbar">
+    <button id="refresh">Refresh data</button>
+    <button class="secondary" id="toggle-manual">Manual input</button>
+  </div>
+  <div class="status" id="status">Loading data&hellip;</div>
+
+  <!-- Manual fallback -->
+  <div class="panel manual" id="manual">
+    <div class="manual-row">
+      <label>VIX
+        <input type="number" step="0.01" id="m-vix" placeholder="e.g. 16.5">
+      </label>
+      <label>10Y2Y spread (%)
+        <input type="number" step="0.01" id="m-spread" placeholder="e.g. 0.45">
+      </label>
+      <button id="m-compute">Compute</button>
+    </div>
+  </div>
+
+  <div class="footnote">
+    VIX: CBOE Volatility Index (FRED series VIXCLS). 10Y2Y spread: 10-year minus 2-year
+    Treasury constant-maturity yield in percentage points (FRED series T10Y2Y).
+    Zone thresholds are illustrative, not investment advice.
+  </div>
+</div>
+
+<script>
+(function () {
+  const FRED = "https://fred.stlouisfed.org/graph/fredgraph.csv";
+  const $ = (id) => document.getElementById(id);
+
+  // --- formatting / classification ---------------------------------------
+
+  function fmt(x, dp = 2) {
+    return (x === null || x === undefined || !isFinite(x)) ? "—" : x.toFixed(dp);
+  }
+
+  // Heuristic zones for VIX/(spread+2.5). Calm markets (VIX ~15, spread ~0.5)
+  // sit near 5; the ratio spikes when volatility rises and/or the curve inverts.
+  function classify(r) {
+    if (r < 6)  return { label: "Calm",     color: "var(--green)" };
+    if (r < 10) return { label: "Moderate", color: "var(--yellow)" };
+    if (r < 20) return { label: "Elevated", color: "var(--orange)" };
+    return        { label: "Extreme",  color: "var(--red)" };
+  }
+
+  function compute(vix, spread) {
+    const denom = spread + 2.5;
+    return { denom, ratio: denom > 0 ? vix / denom : NaN };
+  }
+
+  // --- rendering ----------------------------------------------------------
+
+  function render(vix, spread, asOfText) {
+    const { denom, ratio } = compute(vix, spread);
+    const cls = classify(ratio);
+
+    $("f-vix").textContent = fmt(vix);
+    $("f-spread").textContent = fmt(spread);
+    $("f-result").textContent = fmt(ratio);
+
+    $("c-vix").textContent = fmt(vix);
+    $("c-spread").textContent = fmt(spread) + "%";
+    $("c-denom").textContent = fmt(denom);
+
+    const v = $("ratio-value");
+    v.textContent = fmt(ratio);
+    v.style.color = isFinite(ratio) ? cls.color : "var(--red)";
+
+    const lab = $("ratio-label");
+    if (isFinite(ratio)) {
+      lab.textContent = cls.label;
+      lab.style.color = cls.color;
+      lab.style.display = "inline-block";
+    } else {
+      lab.textContent = "Denominator ≤ 0";
+      lab.style.color = "var(--red)";
+      lab.style.display = "inline-block";
+    }
+    $("asof").textContent = asOfText || "";
+  }
+
+  // --- data loading ---------------------------------------------------------
+
+  function parseCsv(text) {
+    // fredgraph.csv: first column date, second column value, "." = missing
+    const out = new Map();
+    const lines = text.trim().split(/\r?\n/);
+    for (let i = 1; i < lines.length; i++) {
+      const [date, raw] = lines[i].split(",");
+      const v = parseFloat(raw);
+      if (date && isFinite(v)) out.set(date, v);
+    }
+    return out;
+  }
+
+  async function fetchSeries(id, startDate) {
+    const qs = "id=" + id + "&cosd=" + startDate;
+    const urls = [FRED + "?" + qs, "/api/fred?" + qs]; // direct, then local proxy
+    let lastErr;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("HTTP " + res.status + " from " + url);
+        return parseCsv(await res.text());
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr;
+  }
+
+  async function load() {
+    const status = $("status");
+    status.classList.remove("error");
+    status.textContent = "Loading data…";
+    try {
+      const start = new Date();
+      start.setFullYear(start.getFullYear() - 1);
+      const startDate = start.toISOString().slice(0, 10);
+
+      const [vixMap, spreadMap] = await Promise.all([
+        fetchSeries("VIXCLS", startDate),
+        fetchSeries("T10Y2Y", startDate),
+      ]);
+
+      // Join on dates where both series have observations
+      const series = [];
+      for (const [date, vix] of vixMap) {
+        if (spreadMap.has(date)) {
+          const spread = spreadMap.get(date);
+          series.push({ date, vix, spread, ratio: compute(vix, spread).ratio });
+        }
+      }
+      series.sort((a, b) => a.date.localeCompare(b.date));
+      if (!series.length) throw new Error("No overlapping observations");
+
+      const latest = series[series.length - 1];
+      render(latest.vix, latest.spread, "As of " + latest.date + " (daily close, FRED)");
+      $("m-vix").value = latest.vix;
+      $("m-spread").value = latest.spread;
+      drawChart(series);
+      status.textContent = "Data: FRED (VIXCLS, T10Y2Y) · updated " +
+        new Date().toLocaleTimeString();
+    } catch (e) {
+      status.classList.add("error");
+      status.textContent = "Couldn’t fetch data (" + e.message +
+        "). Run server.py for the proxy, or use manual input below.";
+      $("manual").classList.add("visible");
+    }
+  }
+
+  // --- chart ----------------------------------------------------------------
+
+  let chartData = null;
+
+  function drawChart(series) {
+    chartData = series;
+    const canvas = $("chart");
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const pad = { l: 44, r: 12, t: 10, b: 22 };
+    const w = cssW - pad.l - pad.r, h = cssH - pad.t - pad.b;
+    const vals = series.map(p => p.ratio).filter(isFinite);
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const range = (hi - lo) || 1;
+    lo -= range * 0.08; hi += range * 0.08;
+
+    const x = (i) => pad.l + (i / (series.length - 1)) * w;
+    const y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * h;
+
+    // gridlines + y labels
+    ctx.strokeStyle = "#21262d";
+    ctx.fillStyle = "#8b949e";
+    ctx.font = "11px sans-serif";
+    ctx.textAlign = "right";
+    for (let g = 0; g <= 4; g++) {
+      const v = lo + (g / 4) * (hi - lo);
+      const yy = y(v);
+      ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + w, yy); ctx.stroke();
+      ctx.fillText(v.toFixed(1), pad.l - 6, yy + 4);
+    }
+
+    // x labels: first and last date
+    ctx.textAlign = "left";
+    ctx.fillText(series[0].date, pad.l, cssH - 6);
+    ctx.textAlign = "right";
+    ctx.fillText(series[series.length - 1].date, pad.l + w, cssH - 6);
+
+    // area fill + line
+    ctx.beginPath();
+    series.forEach((p, i) => i ? ctx.lineTo(x(i), y(p.ratio)) : ctx.moveTo(x(i), y(p.ratio)));
+    ctx.strokeStyle = "#58a6ff";
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    ctx.lineTo(x(series.length - 1), pad.t + h);
+    ctx.lineTo(x(0), pad.t + h);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(88,166,255,0.12)";
+    ctx.fill();
+
+    // last point marker
+    const last = series[series.length - 1];
+    ctx.beginPath();
+    ctx.arc(x(series.length - 1), y(last.ratio), 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#58a6ff";
+    ctx.fill();
+  }
+
+  // hover tooltip via chart title swap
+  $("chart").addEventListener("mousemove", (ev) => {
+    if (!chartData) return;
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const frac = (ev.clientX - rect.left - 44) / (rect.width - 44 - 12);
+    const i = Math.round(frac * (chartData.length - 1));
+    if (i >= 0 && i < chartData.length) {
+      const p = chartData[i];
+      $("chart-title").textContent =
+        p.date + " · ratio " + fmt(p.ratio) + " (VIX " + fmt(p.vix) +
+        ", spread " + fmt(p.spread) + "%)";
+    }
+  });
+  $("chart").addEventListener("mouseleave", () => {
+    $("chart-title").textContent = "Ratio — trailing 1 year";
+  });
+
+  // --- wiring -----------------------------------------------------------------
+
+  $("refresh").addEventListener("click", load);
+  $("toggle-manual").addEventListener("click", () => {
+    $("manual").classList.toggle("visible");
+  });
+  $("m-compute").addEventListener("click", () => {
+    const vix = parseFloat($("m-vix").value);
+    const spread = parseFloat($("m-spread").value);
+    if (isFinite(vix) && isFinite(spread)) {
+      render(vix, spread, "Manual input");
+    }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>
